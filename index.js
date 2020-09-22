@@ -1,3 +1,6 @@
+const EventEmitter = require('events').EventEmitter
+const em = new EventEmitter()
+
 const express = require('express')
 const app = express()
 
@@ -8,7 +11,7 @@ const rollDie = () => {
     return Math.floor(Math.random() * (max - min + 1)) + min;
 }
 const insertRoll = ({ value, name, callback }) => {
-    db.run(`INSERT INTO rolls (value, name) VALUES(?, ?)`, [value, name], (err) => {
+    db.run(`INSERT INTO rolls (value, name) VALUES(?, ?)`, [value, name], function (err) {
         noError(err)
         if (callback !== undefined) {
             callback(this.lastID)
@@ -17,7 +20,7 @@ const insertRoll = ({ value, name, callback }) => {
 }
 
 const getRolls = ({ afterID, callback }) => {
-    let sql = 'SELECT * FROM rolls';
+    let sql = 'SELECT value, name, rowid FROM rolls ';
     if (afterID !== undefined) {
         sql += `WHERE rowid > ${afterID}`
     }
@@ -37,6 +40,17 @@ db.serialize(() => {
     insertRoll({ value: rollDie(), name: 'User C' })
 })
 
+const ROLL_EVENT = 'roll'
+const  writeSseEvent = (res, payload, id, event) => {
+    if (id != undefined) {
+        res.write(`id: ${escape(id)}\n`)
+    }
+    if (event != undefined) {
+        res.write(`event: ${escape(event)}\n`)
+    }
+    res.write(`data: ${escape(payload)}\n\n`)
+}
+
 app.get('/rolls', (req, res) => {
     getRolls({
         afterID: req.query.after,
@@ -46,15 +60,46 @@ app.get('/rolls', (req, res) => {
 
 app.post('/rolls', (req, res) => {
     const value = rollDie()
-    console.log(`${req.query.name} rolled ${value}`)
+    const name = req.query.name
+    console.log(`${name} rolled ${value}`)
     insertRoll({
         value,
-        name: req.query.name,
-        callback: () => {
+        name,
+        callback: (rowid) => {
             res.status(201)
             res.send()
+            em.emit(ROLL_EVENT, { value, name, rowid })
         }
     })
+})
+
+app.get('/events', async (req, res) => {
+    const lastEventID = req.header('Last-Event-ID')
+    res.setHeader('Content-Type', 'text/event-stream')
+    res.setHeader('Cache-control', 'no-cache')
+    res.setHeader('Transfer-Encoding', 'chunked')
+    res.flushHeaders()
+
+    // send any missed rolls using the last event id (which is rowid)
+    if (lastEventID != undefined) {
+        getRolls({
+            afterID: lastEventID,
+            callback: (rows) => rows.forEach(row => writeSseEvent(res, JSON.stringify(row), row.rowid, ROLL_EVENT))
+        })
+    }
+
+    // listen for new rolls and send them as SSEs
+    const rollListener = (roll) => {
+        writeSseEvent(res, JSON.stringify(roll), roll.rowid, ROLL_EVENT)
+    }
+    res.addListener('close', () => em.removeListener(ROLL_EVENT, rollListener))
+    em.addListener(ROLL_EVENT, rollListener)
+
+    // simulate sporadic client disconnects by ending the open connection after some time
+    // this demonstrates the ability of browser client auto reconnecting and sending last id
+    // await new Promise(resolve => setTimeout(resolve, 5000))
+    // em.removeListener(ROLL_EVENT, rollListener)
+    // res.end()
 })
 
 app.use(express.static('static'))

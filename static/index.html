@@ -34,6 +34,18 @@
                 .then((data) => {
                     data.rolls.forEach(displayRoll)
                 })
+
+            const eventSource = new EventSource('/events')
+            eventSource.onopen = function () { console.log('Connected!') }
+            eventSource.onerror = function () { console.log('Error with EventSource') };
+
+            // listen to 'roll' events
+            eventSource.addEventListener('roll', e => {
+                // e also contains an optional id property (if included by server)
+                const rollData = JSON.parse(unescape(e.data))
+                console.log(`roll event data: ${rollData}`)
+                displayRoll(rollData)
+            })
         })
     </script>
 </body>
