@@ -1,0 +1,40 @@
+<!doctype html>
+
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <title>Disse</title>
+</head>
+
+<body>
+    <div>
+        Previous Rolls:
+        <div id="allRolls"></div>
+    </div>
+    <input id="username" type="text"/>
+    <button onclick="postRoll()">Roll!</button>
+    <script>
+        const allRolls = document.getElementById('allRolls')
+        const usernameInput = document.getElementById('username')
+
+        function postRoll() {
+            const username = usernameInput.value
+            fetch(`/rolls?name=${username}`, { method: 'POST' });
+        }
+
+        function displayRoll(roll) {
+            const rollElem = document.createElement('div')
+            rollElem.textContent = `${roll.name}: ${roll.value}`
+            allRolls.insertBefore(rollElem, allRolls.firstChild)
+        }
+
+        window.addEventListener('load', () => {
+            fetch('/rolls')
+                .then((data) => data.json())
+                .then((data) => {
+                    data.rolls.forEach(displayRoll)
+                })
+        })
+    </script>
+</body>
+</html>
